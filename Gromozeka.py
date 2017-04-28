@@ -1,8 +1,8 @@
 import socket
-import time
+import time, datetime
 import struct
 import threading
-import ParamList
+from ParamList import *
 ISREADY=1
 NOTREADY=0
 
@@ -17,9 +17,7 @@ class Robot():
         self.EXIT = False
         
         self.Motors_Contr_List = []
-        self.Motor_list_len = 0
         self.Steppers_Contr_List = []
-        self.Stepper_list_len = 0
     ###### Индикатор отправки онлайн метки ######
         self.Online = False
 
@@ -33,6 +31,8 @@ class Robot():
     ###### Индикатор подключения (Отключения) к устройству ######
         self.connected = False
 
+    ###### Запускаем функцию, слушающую подклассы - контроллеры ######
+        self.Listen_Cmd_to_Contr()
 
     def Exit(self):
         self.EXIT = True
@@ -59,8 +59,9 @@ class Robot():
     def Send_Msg(self, data):
 #        self.s_lock.acquire(True)     # Ожидает доступа к сокету, и если сокет доступен - захватывает его.
         try:
-            self.s.send(data)   
-            print("DATA TO SEND", data)
+            self.s.send(data)
+            now = datetime.datetime.now()
+            print("\n", now.second, ":", now.microsecond, "DATA TO SEND", data)
             time.sleep(0.1)
             self.SEND_SUCCESS = True
 #            self.s_lock.release()
@@ -71,8 +72,9 @@ class Robot():
         self.queue.append(msg)
 
     def Send_Queue(self):
-        self.SEND_SUCCESS = False
+
         while not self.EXIT: ## /Not exit
+            self.SEND_SUCCESS = False
             if self.queue != []:             # Если очередь не пуста 
                 self.Send_Msg(self.queue[0])     # Отправляем первый элемент очереди и удаляем его
                 if self.SEND_SUCCESS:
@@ -82,9 +84,12 @@ class Robot():
     def Start_Send_Queue(self):             # Запускаем отправку очереди в отдельном потоке
         t = threading.Thread( target = self.Send_Queue)
         t.start()
+        self.Start_Send_Queue = self.function_coffin         # отправляем функцию в гроб
 
-    def normal_Start_Send_Queue(self):      # Делает невозможным повторный запуск потока обработки очереди
+    ###### ГРОБ ######
+    def function_coffin(self):      # Делает невозможным повторный запуск функций которые сюда сослали
         pass
+    ##################
     
     ### Отправка онлайна ### 
     def Send_Online_msg(self):
@@ -99,6 +104,7 @@ class Robot():
         self.Online = True
         t = threading.Thread( target = self.Send_Online_msg)
         t.start()
+        self.Send_Online = self.function_coffin     # отправляем функцию в гроб
 
     def Set_Online(self, value):
         self.Online = value
@@ -116,9 +122,8 @@ class Robot():
             
             try:
                 InMsg = self.s.recv(can_msg.size)   # Получаем сообщение и записываем его в переменную InMsg
-                print (InMsg)
                 Success = True
-
+                
             except OSError as msg:
                 print("Socket error: %s\n " %  msg)
                 Success = False
@@ -128,43 +133,40 @@ class Robot():
 
 
     def Msg_Handler(self, InMsg):   # Обрабатываем сообщение
-
         can_msg = struct.Struct('=I 12B')
-        Param_List = [] ## ВРЕМЕННАЯ МЕРА ДО СОЗДАНИЯ ПАРАМЛИСT
-        for i in Param_List:
-            if can_msg.unpack(InMsg) == 0:
-                pass
+        if can_msg.unpack(InMsg)[0] = self.Motors_Contr_List[0].can_addr:    # Сравниваем айди сообщения с айди контроллера
+            self.Motors_Contr_List[0].Handler(InMsg)  # Отправляем номер полученного параметра и само сообщение в обработчик   
+        if can_msg.unpack(InMsg)[0] = self.Motors_Contr_List[1].can_addr:    # Сравниваем айди сообщения с айди контроллера
+            self.Motors_Contr_List[1].Handler(InMsg)  # Отправляем номер полученного параметра и само сообщение в обработчик   
 
-
+        
     def Listen(self):
         t = threading.Thread( target = self.Recv_Msg)
         t.start()
 
     ###### Работа с контроллерами ######
 
-    def add_Motor_Controller(self, can_addr):
-        self.Motors_Contr_List.append(Motor_Controller(can_addr))
-        self.Motor_list_len = self.Motor_list_len + 1
+    def add_Motor_Controller(self, Controller_Number):
+        self.Motors_Contr_List.append(Motor_Controller(Controller_Number))
     
     def add_Stepper_Controller(self, can_addr):
         self.Steppers_Contr_List.append(Stepper_Controller(can_addr))    
-        self.Stepper_list_len = self.Stepper_list_len + 1
 
     def Recv_Msg_from_Device(self):
         while not self.EXIT:
             # Для мотора
-            for Motor_controller in (self.Motors_Contr_List):
-                self.queue.extend((Motor_controller.queue))
-                Motor_controller.queue.clear()
+            for Motor_Controller in (self.Motors_Contr_List):
+                self.queue.extend((Motor_Controller.queue))
+                Motor_Controller.queue.clear()
                 time.sleep(0.1)
 
             # Для шаговика
-            for i in range(self.Stepper_list_len):
-                self.queue.extend((self.Steppers_Contr_List[i].queue))
-                self.Steppers_Contr_List[i].queue.clear()
+            for Stepper_Controller in (self.Steppers_Contr_List):
+                self.queue.extend((self.Stepper_Controller.queue))
+                self.Stepper_Controller.queue.clear()
 
         
-    def Listen(self):
+    def Listen_Cmd_to_Contr(self):
         t = threading.Thread( target = self.Recv_Msg_from_Device)
         t.start()
   
@@ -177,19 +179,24 @@ class Base_Controller():
 
     def Add_to_queue(self, msg):        # Добавляем сообщение в очередь
         self.queue.append(msg)
-        print("\nCONTROLLER", self.queue)
+        now = datetime.datetime.now()
+        print("\n", now.second, ":", now.microsecond, "CONTROLLER", self.queue)
     def Set_ShortInt_Param(self, can_addr, PrmN, Prm):
         can_msg_shortint_param = struct.Struct('=I 6B h')
         сan_msg_shortint_param_data = can_msg_shortint_param.pack(can_addr, 4, 0, 0, 0, PrmN, 2, Prm)
         self.Add_to_queue(сan_msg_shortint_param_data)   
         
-### Мотор ###
+### Мотор Контроллер ###
         
 class Motor_Controller(Base_Controller):
 
-    def __init__(self, can_addr):
+    def __init__(self, Controller_Number):
         Base_Controller.__init__(self) # Наследуем Base_Device
-        self.can_addr = can_addr
+        self.Controller_Number = Controller_Number 
+        self.can_addr = Controller_Number + 0x200
+        M1 = Motor(0)
+        M2 = Motor(1)
+        Motors = [M1, M2]
 
     def Set_Motor_Speed(self, ParamN, speed):
         self.Set_ShortInt_Param(self.can_addr, ParamN, speed)
@@ -207,8 +214,21 @@ class Motor_Controller(Base_Controller):
         self.Add_to_queue(can_msg_init_data)
         time.sleep(1)
         
+    def Handler(self, InMsg):
+        ParamN = can_msg.unpack(InMsg)[5]      # Изымаем номер полученного параметра
+        if ParamN < 13:
+            Number = 0
+            Motors[Number].Handler(InMsg)
+        if (ParamN => 13) and (ParamN < 26):
+            Number = 1
+            Motors[Number].Handler(InMsg)
+        else:
+            pass # тут должен быть парамлист остальных (>26) параметров
+            
 
-### Шаговый двигатель ###
+
+
+### Шаговый двигатель Контроллер ###
        
 class Stepper_Controller(Base_Controller):        
 
