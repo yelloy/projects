@@ -1,4 +1,4 @@
 #import НИЧОСИ
 
 
-#ParamtadamList = CheGoToTam
+#Param_List = []
